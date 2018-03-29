@@ -1,0 +1,628 @@
+package com.ypbk.zzht.utils.view.recycler.view;
+
+import android.content.Context;
+import android.graphics.Canvas;
+import android.graphics.Rect;
+import android.graphics.drawable.Drawable;
+import android.support.annotation.Nullable;
+import android.support.v7.widget.GridLayoutManager;
+import android.support.v7.widget.LinearLayoutManager;
+import android.support.v7.widget.RecyclerView;
+import android.support.v7.widget.StaggeredGridLayoutManager;
+import android.util.AttributeSet;
+import android.view.MotionEvent;
+import android.view.View;
+import android.view.ViewGroup;
+
+import com.jcodecraeer.xrecyclerview.XRecyclerView;
+import com.ypbk.zzht.utils.view.recycler.base.BaseLoadFooter;
+import com.ypbk.zzht.utils.view.recycler.base.BaseRefreshHeader;
+import com.ypbk.zzht.utils.view.recycler.official.OfficialLoadFooter;
+import com.ypbk.zzht.utils.view.recycler.official.OfficialRefreshHeader;
+
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * 编写人: LongDa
+ * 时间: 2017-11-2017/11/20 18:31
+ * 功能描述:
+ */
+
+public class CustomeRecyclerView extends RecyclerView {
+
+    private static final int TYPE_REFRESH_HEADER = 10000;
+    private static final int TYPE_FOOTER = 10001;
+    private static final int TYPE_CUSTOME_INDEX = 10002;//用户自定义头
+
+    private int mLoadOffeset = 1;
+
+    private View mEmptyView;
+    private BaseLoadFooter mFooterView;
+    private BaseRefreshHeader mRefreshHeader;
+    private boolean mEnableRefresh = true;
+    private boolean mEnableLoadMore = true;
+    private boolean isLoadingData = false;
+    private boolean isNoMore;
+
+    private OnLoadDataListener mLoadListener;
+    private AdapterDataObserver mOberver = new DataObserver();
+    private WrapAdapter mWrapAdapter;
+
+    private List<View> mHeaderViews = new ArrayList<>();
+    private List<Integer> mHeaderTypes = new ArrayList<>();
+
+    public CustomeRecyclerView(Context context) {
+        super(context);
+        init(context);
+    }
+
+    public CustomeRecyclerView(Context context, @Nullable AttributeSet attrs) {
+        super(context, attrs);
+        init(context);
+    }
+
+    private void init(Context context) {
+        mRefreshHeader = new OfficialRefreshHeader(context);
+        mFooterView = new OfficialLoadFooter(context);
+        mFooterView.setVisiable(GONE);
+    }
+
+    public void setNoMore(boolean noMore) {
+        isLoadingData = false;
+        this.isNoMore = noMore;
+        mFooterView.setState(noMore ? BaseLoadFooter.STATE_NO_MORE :
+                BaseLoadFooter.STATE_LOAD_COMPLETE);
+    }
+
+    public void setRefreshHeader(BaseRefreshHeader header) {
+        this.mRefreshHeader = header;
+    }
+
+    public void setEmptyView(View emptyView) {
+        this.mEmptyView = emptyView;
+        mOberver.onChanged();
+    }
+
+    public void setFooterView(BaseLoadFooter footerView) {
+        this.mFooterView = footerView;
+        this.mFooterView.setVisiable(GONE);
+    }
+
+    public void addHeadView(View view) {
+        mHeaderTypes.add(TYPE_CUSTOME_INDEX + mHeaderViews.size());
+        mHeaderViews.add(view);
+        if (mWrapAdapter != null) {
+            mWrapAdapter.notifyDataSetChanged();
+        }
+    }
+
+    public void setLoadOffsset(int offset) {
+        this.mLoadOffeset = offset;
+    }
+
+    public View getHeaderByType(int type) {
+        if (!isHeaderType(type)) {
+            return null;
+        }
+
+        return mHeaderViews.get(type - TYPE_CUSTOME_INDEX);
+    }
+
+    private boolean isHeaderType(int type) {
+        return mHeaderTypes.size() > 0 && mHeaderTypes.contains(type);
+    }
+
+    private boolean isReservedType(int type) {
+        return type == TYPE_REFRESH_HEADER || type == TYPE_FOOTER || mHeaderTypes.contains(type);
+    }
+
+    public void setEnableRefresh(boolean enable) {
+        this.mEnableRefresh = enable;
+    }
+
+    public void setEnableLoadMore(boolean enable) {
+        this.mEnableLoadMore = enable;
+        mFooterView.setState(BaseLoadFooter.STATE_LOAD_COMPLETE);
+    }
+
+    public void refreshComplete() {
+        mRefreshHeader.refreshComplete();
+        isLoadingData = false;
+    }
+
+    public void loadComplete() {
+        mFooterView.setState(BaseLoadFooter.STATE_LOAD_COMPLETE);
+    }
+
+    public void reset() {
+        refreshComplete();
+        loadComplete();
+        setNoMore(false);
+    }
+
+    private float mLastY = -1;
+
+    private boolean isOnTop() {
+        return mRefreshHeader.getView().getParent() != null;
+    }
+
+    @Override
+    public boolean onTouchEvent(MotionEvent e) {
+        if (mLastY == -1) {
+            mLastY = e.getRawY();
+        }
+        switch (e.getAction()) {
+            case MotionEvent.ACTION_DOWN:
+                mLastY = e.getRawY();
+                break;
+            case MotionEvent.ACTION_MOVE:
+                float detlaY = e.getRawY() - mLastY;
+                mLastY = e.getRawY();
+                if (mRefreshHeader.getState() == BaseRefreshHeader.STATE_REFRESHING)
+                    return false;
+                if (mEnableRefresh && isOnTop())
+                    mRefreshHeader.onMove((int) detlaY / 3);
+                if (mRefreshHeader.getVisiableHeight() > 0 && mRefreshHeader.getState()
+                        < BaseRefreshHeader.STATE_REFRESHING)
+                    return false;
+
+                break;
+            default:
+                mLastY = -1;
+                if (mLoadListener != null && mEnableRefresh && isOnTop()) {
+                    if (mRefreshHeader.releaseAction())
+                        mLoadListener.onRefresh();
+                }
+                break;
+        }
+        return super.onTouchEvent(e);
+    }
+
+    @Override
+    public void onScrollStateChanged(int state) {
+        super.onScrollStateChanged(state);
+        if (state == RecyclerView.SCROLL_STATE_IDLE
+                && mEnableLoadMore
+                && mLoadListener != null && mWrapAdapter != null) {
+            int lastVisiableItemPosition;
+            LayoutManager manager = getLayoutManager();
+            if (manager instanceof GridLayoutManager) {
+                lastVisiableItemPosition = ((GridLayoutManager) manager).findFirstVisibleItemPosition();
+            } else if (manager instanceof StaggeredGridLayoutManager) {
+                int[] spanSize = new int[((StaggeredGridLayoutManager) manager).getSpanCount()];
+                int[] lastVisibleItemPositions = ((StaggeredGridLayoutManager) manager).findLastVisibleItemPositions(spanSize);
+                lastVisiableItemPosition = findMax(lastVisibleItemPositions);
+            } else {
+                lastVisiableItemPosition = ((LinearLayoutManager) manager).findLastVisibleItemPosition();
+            }
+
+            if (lastVisiableItemPosition >= manager.getItemCount() - mLoadOffeset
+                    && manager.getChildCount() > 0 && !isNoMore && !isLoadingData
+                    && mRefreshHeader.getState() < BaseRefreshHeader.STATE_REFRESHING) {
+                mFooterView.setState(BaseLoadFooter.STATE_LOADING);
+                //刷新
+                mLoadListener.onLoadMore();
+            }
+        }
+    }
+
+    @Override
+    public void setLayoutManager(LayoutManager layout) {
+        super.setLayoutManager(layout);
+        if (mWrapAdapter != null && layout instanceof GridLayoutManager) {
+            GridLayoutManager gridLayoutManager = (GridLayoutManager) layout;
+            final int spanCount = gridLayoutManager.getSpanCount();
+            gridLayoutManager.setSpanSizeLookup(new GridLayoutManager.SpanSizeLookup() {
+                @Override
+                public int getSpanSize(int position) {
+                    return mWrapAdapter.isFooter(position)
+                            || mWrapAdapter.isRefreshHeader(position)
+                            || mWrapAdapter.isHeader(position) ? spanCount : 1;
+                }
+            });
+        }
+    }
+
+    @Override
+    public void setAdapter(Adapter adapter) {
+        if (mWrapAdapter == null) {
+            mWrapAdapter = new WrapAdapter(adapter);
+        }
+        super.setAdapter(mWrapAdapter);
+        mWrapAdapter.registerAdapterDataObserver(mOberver);
+        mOberver.onChanged();
+    }
+
+    private int findMax(int[] array) {
+        int max = array[0];
+        for (int value : array) {
+            if (value > max) {
+                max = value;
+            }
+        }
+
+        return max;
+    }
+
+    @Override
+    public Adapter getAdapter() {
+        if (mWrapAdapter != null) {
+            return mWrapAdapter.getOriginalAdapter();
+        }
+        return null;
+    }
+
+
+    private class WrapAdapter extends Adapter<ViewHolder> {
+
+        Adapter adapter;
+
+        WrapAdapter(Adapter adapter) {
+            this.adapter = adapter;
+        }
+
+        Adapter getOriginalAdapter() {
+            return adapter;
+        }
+
+        private int getHeaderCount() {
+            return mHeaderTypes.size();
+        }
+
+        private boolean isRefreshHeader(int position) {
+            return position == 0;
+        }
+
+        private boolean isHeader(int position) {
+            return position >= 1 && position < mHeaderTypes.size() + 1;
+        }
+
+        private boolean isFooter(int position) {
+            if (mEnableLoadMore) {
+                return position == getItemCount() - 1;
+            } else {
+                return false;
+            }
+        }
+
+        @Override
+        public int getItemViewType(int position) {
+            int adjPosition = position - (getHeaderCount() + 1);
+            if (isRefreshHeader(position)) {
+                return TYPE_REFRESH_HEADER;
+            } else if (isHeader(position)) {
+                position = position - 1;
+                return mHeaderTypes.get(position);
+            } else if (isFooter(position)) {
+                return TYPE_FOOTER;
+            } else {
+                if (adapter != null) {
+                    int adapterCount = adapter.getItemCount();
+                    int type = adapter.getItemViewType(adjPosition);
+                    if (adjPosition < adapterCount) {
+                        if (isReservedType(type)) {
+                            throw new IllegalArgumentException("header type must smaller than 10002");
+                        }
+                        return type;
+                    }
+                }
+                return 0;
+            }
+        }
+
+        @Override
+        public long getItemId(int position) {
+            if (adapter != null) {
+                int adjPosition = adapter.getItemCount() - (getHeaderCount() + 1);
+                if (adjPosition < adapter.getItemCount()) {
+                    return adapter.getItemId(adjPosition);
+                }
+            }
+            return -1;
+        }
+
+        @Override
+        public ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
+            if (viewType == TYPE_REFRESH_HEADER) {
+                return new SimpleViewHolder(mRefreshHeader.getView());
+            } else if (isHeaderType(viewType)) {
+                return new SimpleViewHolder(getHeaderByType(viewType));
+            } else if (viewType == TYPE_FOOTER) {
+                return new SimpleViewHolder(mFooterView.getView());
+            } else {
+                return adapter.onCreateViewHolder(parent, viewType);
+            }
+
+        }
+
+        @Override
+        public void onBindViewHolder(ViewHolder holder, int position) {
+            if (isRefreshHeader(position) || isHeader(position)) return;
+            int adjPosition = position - (getHeaderCount() + 1);
+            if (adapter != null && adjPosition < adapter.getItemCount()) {
+                adapter.onBindViewHolder(holder, position);
+            }
+        }
+
+        @Override
+        public void onBindViewHolder(ViewHolder holder, int position, List<Object> payloads) {
+            if (isHeader(position) || isRefreshHeader(position)) {
+                return;
+            }
+
+            int adjPosition = position - (getHeaderCount() + 1);
+            int adapterCount;
+            if (adapter != null) {
+                adapterCount = adapter.getItemCount();
+                if (adjPosition < adapterCount) {
+                    if (payloads.isEmpty()) {
+                        adapter.onBindViewHolder(holder, adjPosition);
+                    } else {
+                        adapter.onBindViewHolder(holder, adjPosition, payloads);
+                    }
+                }
+            }
+
+        }
+
+        @Override
+        public int getItemCount() {
+            if (mEnableLoadMore) {
+                if (adapter != null) {
+                    return adapter.getItemCount() + getHeaderCount() + 2;
+                } else {
+                    return getHeaderCount() + 2;
+                }
+            } else {
+                if (adapter != null) {
+                    return adapter.getItemCount() + getHeaderCount() + 1;
+                } else {
+                    return getHeaderCount() + 1;
+                }
+            }
+        }
+
+        @Override
+        public void onViewAttachedToWindow(ViewHolder holder) {
+            super.onViewAttachedToWindow(holder);
+            ViewGroup.LayoutParams lp = holder.itemView.getLayoutParams();
+            if (lp != null
+                    && lp instanceof StaggeredGridLayoutManager.LayoutParams && (isHeader(holder.getLayoutPosition())
+                    || isRefreshHeader(holder.getLayoutPosition()) || isFooter(holder.getLayoutPosition()))) {
+                StaggeredGridLayoutManager.LayoutParams p = (StaggeredGridLayoutManager.LayoutParams) lp;
+                p.setFullSpan(true);
+            }
+        }
+
+        @Override
+        public void onAttachedToRecyclerView(RecyclerView recyclerView) {
+            super.onAttachedToRecyclerView(recyclerView);
+            LayoutManager manager = recyclerView.getLayoutManager();
+            if (manager instanceof GridLayoutManager) {
+                final GridLayoutManager griManager1 = (GridLayoutManager) manager;
+                griManager1.setSpanSizeLookup(new GridLayoutManager.SpanSizeLookup() {
+                    @Override
+                    public int getSpanSize(int position) {
+                        return (isHeader(position) || isRefreshHeader(position) || isFooter(position)) ? griManager1.getSpanCount() : 1;
+                    }
+                });
+            }
+        }
+
+        @Override
+        public void onViewDetachedFromWindow(ViewHolder holder) {
+            adapter.onViewDetachedFromWindow(holder);
+        }
+
+        @Override
+        public boolean onFailedToRecycleView(ViewHolder holder) {
+            return adapter.onFailedToRecycleView(holder);
+        }
+
+        @Override
+        public void unregisterAdapterDataObserver(AdapterDataObserver observer) {
+            adapter.unregisterAdapterDataObserver(observer);
+        }
+
+        @Override
+        public void registerAdapterDataObserver(AdapterDataObserver observer) {
+            adapter.registerAdapterDataObserver(observer);
+        }
+
+        class SimpleViewHolder extends ViewHolder {
+            SimpleViewHolder(View itemView) {
+                super(itemView);
+            }
+        }
+    }
+
+    private class DataObserver extends AdapterDataObserver {
+        @Override
+        public void onChanged() {
+            super.onChanged();
+            if (mWrapAdapter != null & mEmptyView != null) {
+                int emptyCount = mWrapAdapter.getHeaderCount() + 1;
+
+                if (mEnableLoadMore) {
+                    emptyCount++;
+                }
+
+                if (mWrapAdapter.getItemCount() == emptyCount) {
+                    mEmptyView.setVisibility(View.VISIBLE);
+                    CustomeRecyclerView.this.setVisibility(View.GONE);
+                } else {
+                    mEmptyView.setVisibility(View.GONE);
+                    CustomeRecyclerView.this.setVisibility(View.VISIBLE);
+                }
+            }
+
+            if (mWrapAdapter != null) {
+                mWrapAdapter.notifyDataSetChanged();
+            }
+//            if (mWrapAdapter != null) {
+//                mWrapAdapter.notifyDataSetChanged();
+//
+//                if (mEmptyView != null) {
+//                    int emptyCpunt = mWrapAdapter.getHeaderCount() + 1;
+//                    if (mWrapAdapter.getItemCount() == emptyCpunt) {
+//                        mEmptyView.setVisibility(VISIBLE);
+//                        CustomeRecyclerView.this.setVisibility(GONE);
+//                    } else {
+//                        mEmptyView.setVisibility(GONE);
+//                        CustomeRecyclerView.this.setVisibility(VISIBLE);
+//                    }
+//                }
+//            } else {
+//                if (mEmptyView != null)
+//                    mEmptyView.setVisibility(GONE);
+//            }
+        }
+
+        @Override
+        public void onItemRangeRemoved(int positionStart, int itemCount) {
+            mWrapAdapter.notifyItemRangeRemoved(positionStart, itemCount);
+        }
+
+        @Override
+        public void onItemRangeMoved(int fromPosition, int toPosition, int itemCount) {
+            mWrapAdapter.notifyItemMoved(fromPosition, toPosition);
+        }
+
+        @Override
+        public void onItemRangeInserted(int positionStart, int itemCount) {
+            mWrapAdapter.notifyItemRangeInserted(positionStart, itemCount);
+        }
+
+        @Override
+        public void onItemRangeChanged(int positionStart, int itemCount) {
+            mWrapAdapter.notifyItemRangeChanged(positionStart, itemCount);
+        }
+
+        @Override
+        public void onItemRangeChanged(int positionStart, int itemCount, Object payload) {
+            mWrapAdapter.notifyItemRangeChanged(positionStart, itemCount, payload);
+        }
+    }
+
+    public class DividerItemDecoration extends ItemDecoration {
+
+        private Drawable mDivider;
+        private int mOrientation;
+
+        /**
+         * Sole constructor. Takes in a {@link Drawable} to be used as the interior
+         * divider.
+         *
+         * @param divider A divider {@code Drawable} to be drawn on the RecyclerView
+         */
+        public DividerItemDecoration(Drawable divider) {
+            mDivider = divider;
+        }
+
+        /**
+         * Draws horizontal or vertical dividers onto the parent RecyclerView.
+         *
+         * @param canvas The {@link Canvas} onto which dividers will be drawn
+         * @param parent The RecyclerView onto which dividers are being added
+         * @param state  The current RecyclerView.State of the RecyclerView
+         */
+        @Override
+        public void onDraw(Canvas canvas, RecyclerView parent, State state) {
+            if (mOrientation == LinearLayoutManager.HORIZONTAL) {
+                drawHorizontalDividers(canvas, parent);
+            } else if (mOrientation == LinearLayoutManager.VERTICAL) {
+                drawVerticalDividers(canvas, parent);
+            }
+        }
+
+        /**
+         * Determines the size and location of offsets between items in the parent
+         * RecyclerView.
+         *
+         * @param outRect The {@link Rect} of offsets to be added around the child
+         *                view
+         * @param view    The child view to be decorated with an offset
+         * @param parent  The RecyclerView onto which dividers are being added
+         * @param state   The current RecyclerView.State of the RecyclerView
+         */
+        @Override
+        public void getItemOffsets(Rect outRect, View view, RecyclerView parent, State state) {
+            super.getItemOffsets(outRect, view, parent, state);
+
+            if (parent.getChildAdapterPosition(view) <= mWrapAdapter.getHeaderCount() + 1) {
+                return;
+            }
+            mOrientation = ((LinearLayoutManager) parent.getLayoutManager()).getOrientation();
+            if (mOrientation == LinearLayoutManager.HORIZONTAL) {
+                outRect.left = mDivider.getIntrinsicWidth();
+            } else if (mOrientation == LinearLayoutManager.VERTICAL) {
+                outRect.top = mDivider.getIntrinsicHeight();
+            }
+        }
+
+        /**
+         * Adds dividers to a RecyclerView with a LinearLayoutManager or its
+         * subclass oriented horizontally.
+         *
+         * @param canvas The {@link Canvas} onto which horizontal dividers will be
+         *               drawn
+         * @param parent The RecyclerView onto which horizontal dividers are being
+         *               added
+         */
+        private void drawHorizontalDividers(Canvas canvas, RecyclerView parent) {
+            int parentTop = parent.getPaddingTop();
+            int parentBottom = parent.getHeight() - parent.getPaddingBottom();
+
+            int childCount = parent.getChildCount();
+            for (int i = 0; i < childCount - 1; i++) {
+                View child = parent.getChildAt(i);
+
+                LayoutParams params = (LayoutParams) child.getLayoutParams();
+
+                int parentLeft = child.getRight() + params.rightMargin;
+                int parentRight = parentLeft + mDivider.getIntrinsicWidth();
+
+                mDivider.setBounds(parentLeft, parentTop, parentRight, parentBottom);
+                mDivider.draw(canvas);
+            }
+        }
+
+        /**
+         * Adds dividers to a RecyclerView with a LinearLayoutManager or its
+         * subclass oriented vertically.
+         *
+         * @param canvas The {@link Canvas} onto which vertical dividers will be
+         *               drawn
+         * @param parent The RecyclerView onto which vertical dividers are being
+         *               added
+         */
+        private void drawVerticalDividers(Canvas canvas, RecyclerView parent) {
+            int parentLeft = parent.getPaddingLeft();
+            int parentRight = parent.getWidth() - parent.getPaddingRight();
+
+            int childCount = parent.getChildCount();
+            for (int i = 0; i < childCount - 1; i++) {
+                View child = parent.getChildAt(i);
+
+                LayoutParams params = (LayoutParams) child.getLayoutParams();
+
+                int parentTop = child.getBottom() + params.bottomMargin;
+                int parentBottom = parentTop + mDivider.getIntrinsicHeight();
+
+                mDivider.setBounds(parentLeft, parentTop, parentRight, parentBottom);
+                mDivider.draw(canvas);
+            }
+        }
+    }
+
+    public void setLoadListener(OnLoadDataListener listener) {
+        mLoadListener = listener;
+    }
+
+    public interface OnLoadDataListener {
+        void onRefresh();
+
+        void onLoadMore();
+    }
+}
