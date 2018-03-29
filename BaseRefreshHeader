@@ -1,0 +1,39 @@
+package com.ypbk.zzht.utils.view.recycler.base;
+
+import android.view.View;
+
+/**
+ * 编写人: LongDa
+ * 时间: 2017-11-2017/11/20 17:01
+ * 功能描述: 统一定义的刷新头接口
+ */
+
+public interface BaseRefreshHeader {
+
+    int STATE_NOMAL = 0;
+    int STATE_REFRESH_REALEASE = 1;
+    int STATE_REFRESHING = 2;
+    int STATE_REFRESH_COMPLETE = 3;
+
+    int STATE_RELEASE = 1;
+    int STATE_COMPLET = 3;
+
+    void setState(int state);
+
+    int getState();
+
+    boolean releaseAction();
+
+    void onMove(int distance);
+
+    void refreshComplete();
+
+    int getVisiableHeight();
+
+    void reSet();
+
+    View getView();
+
+    int getMeasureHeight();
+
+}
