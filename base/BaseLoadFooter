@@ -1,0 +1,20 @@
+package com.ypbk.zzht.utils.view.recycler.base;
+
+import android.view.View;
+
+/**
+ * 编写人: LongDa
+ * 时间: 2017-11-2017/11/20 17:07
+ * 功能描述:
+ */
+
+public interface BaseLoadFooter {
+
+    int STATE_NO_MORE = 0;
+    int STATE_LOADING = 1;
+    int STATE_LOAD_COMPLETE = 2;
+
+    void setState(int state);
+    void setVisiable(int visiable);
+    View getView();
+}
