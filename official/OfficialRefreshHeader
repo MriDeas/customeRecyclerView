@@ -1,0 +1,237 @@
+package com.ypbk.zzht.utils.view.recycler.official;
+
+import android.animation.ValueAnimator;
+import android.content.Context;
+import android.graphics.drawable.AnimationDrawable;
+import android.os.Handler;
+import android.os.Message;
+import android.support.annotation.Nullable;
+import android.util.AttributeSet;
+import android.view.LayoutInflater;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
+import android.widget.TextView;
+
+import com.yipinbaike.zhenzhenhaitao.R;
+import com.ypbk.zzht.utils.view.recycler.base.BaseRefreshHeader;
+
+import java.lang.ref.SoftReference;
+
+
+/**
+ * 编写人: LongDa
+ * 时间: 2017-11-2017/11/20 17:11
+ * 功能描述:
+ */
+
+public class OfficialRefreshHeader extends LinearLayout implements BaseRefreshHeader {
+
+    private static final int REFRESH_CODE = 1;
+    private static final int RESET_CODE = 0;
+
+    private View mContainer;
+    private TextView mLoadStateTv;
+    private ImageView mLoadAnimIv;
+
+    private int mMeasureHeight = 0;
+    private int mState;
+
+    private boolean animIsLoading = false;
+
+    public OfficialRefreshHeader(Context context) {
+        super(context);
+        initView(context);
+    }
+
+    public OfficialRefreshHeader(Context context, @Nullable AttributeSet attrs) {
+        super(context, attrs);
+        initView(context);
+    }
+
+    private void initView(Context context) {
+        mContainer = LayoutInflater.from(context).inflate(R.layout.official_recycler_header, this, false);
+        if (mContainer == null) return;
+//        mContainer.findViewById(R.id.head_progressBar).setVisibility(GONE);
+        mLoadStateTv = (TextView) mContainer.findViewById(R.id.tv_recycler_state);
+        mLoadAnimIv = (ImageView) mContainer.findViewById(R.id.iv_recycler_pull_icon);
+
+        LayoutParams params = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.setMargins(0, 0, 0, 0);
+        setLayoutParams(params);
+        setPadding(0, 0, 0, 0);
+
+        addView(mContainer, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0));
+        measure(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        mMeasureHeight = getMeasuredHeight();
+
+        startAnim();
+    }
+
+    private void startAnim() {
+        AnimationDrawable animDrawable = (AnimationDrawable) mLoadAnimIv.getBackground();
+        if (animDrawable != null) {
+            animDrawable.start();
+        }
+    }
+
+    private void stopAnim() {
+        AnimationDrawable animDrawable = (AnimationDrawable) mLoadAnimIv.getBackground();
+        animIsLoading = false;
+        if (animDrawable != null) {
+            animDrawable.stop();
+        }
+    }
+
+    @Override
+    public void setState(int state) {
+        if (state == mState) return;
+        switch (state) {
+            case STATE_NOMAL:
+//                mLoadStateTv.setText(R.string.refresh_nomal);
+                break;
+            case STATE_REFRESH_REALEASE:
+//                mLoadStateTv.setText(R.string.refresh_realease);
+                break;
+            case STATE_REFRESHING:
+//                mLoadStateTv.setText(R.string.refreshing_txt);
+                smoothScrollTo(mMeasureHeight);
+                break;
+            case STATE_REFRESH_COMPLETE:
+//                mLoadStateTv.setText(R.string.refresh_complete);
+//                stopAnim();
+                break;
+        }
+        this.mState = state;
+    }
+
+    @Override
+    public int getState() {
+        return mState;
+    }
+
+    @Override
+    public boolean releaseAction() {
+        boolean isRefreshing = false;
+        //松手
+        int height = getVisiableHeight();
+        if (height == 0)
+            isRefreshing = false;
+        if (height > mMeasureHeight && mState < STATE_REFRESHING) {
+            //去刷新数据
+            setState(STATE_REFRESHING);
+            isRefreshing = true;
+        }
+
+        if (mState != STATE_REFRESHING) {
+            smoothScrollTo(0);
+        }
+
+        return isRefreshing;
+    }
+
+    @Override
+    public void onMove(int distance) {
+        //滑动
+        if (getVisiableHeight() > 0 || distance > 0) {
+//            if (!animIsLoading) {
+//                startAnim();
+//                animIsLoading = true;
+//            }
+
+            setVisiableHeight(getVisiableHeight() + distance);
+            if (getVisiableHeight() > mMeasureHeight) {
+                setState(STATE_REFRESH_REALEASE);
+            } else {
+                setState(STATE_NOMAL);
+            }
+        }
+    }
+
+    @Override
+    public void reSet() {
+        checkNull();
+        smoothScrollTo(0);
+        Message message = mHandler.obtainMessage();
+        message.arg1 = STATE_NOMAL;
+        message.what = RESET_CODE;
+        mHandler.sendMessageDelayed(message, 200);
+    }
+
+    @Override
+    public View getView() {
+        return this;
+    }
+
+    @Override
+    public int getMeasureHeight() {
+        return mMeasureHeight;
+    }
+
+    @Override
+    public void refreshComplete() {
+        checkNull();
+        setState(STATE_REFRESH_COMPLETE);
+        mHandler.sendEmptyMessageDelayed(REFRESH_CODE, 500);
+    }
+
+    private void setVisiableHeight(int height) {
+        if (height < 0) height = 0;
+        ViewGroup.LayoutParams params = mContainer.getLayoutParams();
+        params.height = height;
+        mContainer.setLayoutParams(params);
+    }
+
+    @Override
+    public int getVisiableHeight() {
+        return mContainer.getLayoutParams().height;
+    }
+
+
+    private void smoothScrollTo(int des) {
+        ValueAnimator animator = ValueAnimator.ofInt(getVisiableHeight(),
+                des);
+        animator.setDuration(300);
+        animator.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
+            @Override
+            public void onAnimationUpdate(ValueAnimator animation) {
+                setVisiableHeight((Integer) animation.getAnimatedValue());
+            }
+        });
+        animator.start();
+    }
+
+    private void checkNull() {
+        if (mHandler == null)
+            mHandler = new ViewHandler(this);
+    }
+
+    private ViewHandler mHandler = new ViewHandler(this);
+
+    private static class ViewHandler extends Handler {
+        private SoftReference<OfficialRefreshHeader> sfs;
+
+        private ViewHandler(OfficialRefreshHeader view) {
+            sfs = new SoftReference<>(view);
+        }
+
+        @Override
+        public void handleMessage(Message msg) {
+            OfficialRefreshHeader headerLayout = sfs.get();
+            if (headerLayout == null) return;
+            switch (msg.what) {
+                case REFRESH_CODE:
+                    headerLayout.reSet();
+                    break;
+                case RESET_CODE:
+                    int code = msg.arg1;
+                    headerLayout.setState(code);
+                    break;
+            }
+
+            super.handleMessage(msg);
+        }
+    }
+}
