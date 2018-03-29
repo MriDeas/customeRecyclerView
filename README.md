@@ -1,2 +1,5 @@
 # customeRecyclerView
 可自定义刷新加载的RecyclerView
+
+- 简介
+之前在做项目的过程中需要用到可自定义刷新头和底部加载的RecyclerView,在前任的代码里看到了XRecyclerView,但是没发现这个控件怎么自定义自己的刷新或加载效果，后面就翻看了XRecyclerView的代码，自己也对此进行了改造，通过实现BaseRefreshHeader和BaseLoadFooter接口实现自己的头部局和底部控件，想做什么效果都可以在自己定义的header或footer里面实现。
